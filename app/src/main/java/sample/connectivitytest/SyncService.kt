@@ -9,7 +9,12 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import io.reactivex.Completable
+import io.reactivex.Observable
+import io.reactivex.Single
 import io.reactivex.disposables.CompositeDisposable
+import io.reactivex.functions.BiFunction
+import java.util.logging.Logger
 
 @SuppressLint("CheckResult")
 class SyncService : JobService() {
@@ -29,6 +34,7 @@ class SyncService : JobService() {
 
         private fun logMessage(message: String, throwable: Throwable? = null) =
             Log.d("DEBUG - SyncService", message, throwable)
+
     }
 
 
@@ -45,15 +51,28 @@ class SyncService : JobService() {
     }
 
     override fun onStartJob(params: JobParameters?): Boolean {
-        logMessage("onStartJob")
+        logMessage("onStartJob, thread = ${Thread.currentThread()}")
 
         with(applicationContext as App) {
             disposables.add(
+                Observable.mergeDelayError(
+                    RequestHelper.retryRequest(client, request).toObservable<Int>(),
+                    RequestHelper.retryGrpcRequest(stub).toObservable<Int>()
+                )
+                    .doOnComplete { jobFinished(params, false) }
+                    .doOnError { jobFinished(params, true) }
+                    .subscribe({}, {})
+            )
+
+            //can use following lines to test gRPC request only
+            /*
+             disposables.add(
                 RequestHelper.retryGrpcRequest(stub)
                     .doOnComplete { jobFinished(params, false) }
                     .doOnError { jobFinished(params, true) }
                     .subscribe({}, {})
             )
+            */
         }
 
         return true
@@ -69,8 +88,4 @@ class SyncService : JobService() {
         disposables.dispose()
         logMessage("onDestroy")
     }
-
-
-
-
 }
